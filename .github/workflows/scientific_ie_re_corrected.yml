@@ -1,0 +1,105 @@
+name: Scientific relation extraction corrected
+
+on:
+  push:
+    branches:
+      - scientific-ie-re-corrected-20260830
+    paths:
+      - .github/workflows/scientific_ie_re_corrected.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: scientific-ie-re-corrected-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  relation_extraction_corrected:
+    name: Corrected ChemProt relation extraction — 5 models
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    env:
+      TOKENIZERS_PARALLELISM: "false"
+      OMP_NUM_THREADS: "2"
+      MKL_NUM_THREADS: "2"
+      PYTHONHASHSEED: "20260830"
+    steps:
+      - name: Checkout benchmark branch
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Restore, correct, and verify relation-extraction source
+        shell: bash
+        run: |
+          set -euo pipefail
+          gzip -dc benchmarks/re_benchmark.py.gz > benchmarks/re_benchmark_corrected.py
+          test "$(wc -c < benchmarks/re_benchmark_corrected.py)" -eq 39686
+          python - <<'PY'
+          from pathlib import Path
+          path = Path("benchmarks/re_benchmark_corrected.py")
+          source = path.read_text(encoding="utf-8")
+          old = '''    if len(labels) > 1:
+                  return None, True
+              # A known positive relation exists, but not in the common taxonomy.
+              return None, True'''
+          new = '''    if len(labels) > 1:
+                  return None, True
+              # In ChemProt, non-evaluated relation groups remain valid negative
+              # candidates for the five target classes. For cross-corpus DrugProt,
+              # genuinely unmappable positive pairs are excluded from OOD scoring.
+              if mapping is None:
+                  return "NO_RELATION", True
+              return None, True'''
+          if old not in source:
+              raise RuntimeError("Expected relation-label block was not found")
+          path.write_text(source.replace(old, new, 1), encoding="utf-8")
+          PY
+          python -m py_compile benchmarks/re_benchmark_corrected.py
+
+      - name: Install pinned runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          pip install torch==2.5.1 --index-url https://download.pytorch.org/whl/cpu
+          pip install \
+            numpy==1.26.4 \
+            pandas==2.2.3 \
+            pyarrow==18.1.0 \
+            scikit-learn==1.5.2 \
+            sklearn-crfsuite==0.5.0 \
+            requests==2.32.3 \
+            transformers==4.46.3 \
+            accelerate==1.1.1 \
+            safetensors==0.4.5
+
+      - name: Run corrected complete relation-extraction benchmark
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p results/re_corrected
+          set -o pipefail
+          python benchmarks/re_benchmark_corrected.py \
+            --output results/re_corrected \
+            --bootstrap 300 2>&1 | tee results/re_corrected/run.log
+
+      - name: Upload corrected relation-extraction evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: re-corrected-results
+          path: |
+            results/re_corrected/*.csv
+            results/re_corrected/*.json
+            results/re_corrected/run.log
+            results/re_corrected/predictions
+            results/re_corrected/confusion_matrices
+          if-no-files-found: warn
+          retention-days: 14
