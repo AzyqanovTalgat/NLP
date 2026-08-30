@@ -38,17 +38,28 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p benchmarks
-          curl -fsSL \
-            https://raw.githubusercontent.com/AzyqanovTalgat/NLP/scientific-ie-benchmark-20260830/benchmarks/ner_benchmark.py.gz.b64 \
-            -o /tmp/ner_benchmark.py.gz.b64
-          base64 -d /tmp/ner_benchmark.py.gz.b64 | gzip -dc > benchmarks/ner_benchmark_optimized.py
-          test "$(wc -c < benchmarks/ner_benchmark_optimized.py)" -eq 35793
-          test "$(sha256sum benchmarks/ner_benchmark_optimized.py | awk '{print $1}')" = "dcd57ea8e606f445526a45e89ac41d01c96f7200f33f4b8b95c8751a1bbf421c"
           python - <<'PY'
+          import base64
+          import gzip
+          import hashlib
           from pathlib import Path
-          path = Path("benchmarks/ner_benchmark_optimized.py")
-          source = path.read_text(encoding="utf-8")
+
+          parts = sorted(Path("benchmarks/ner_parts").glob("part*"))
+          if len(parts) != 8:
+              raise SystemExit(f"Expected 8 NER source chunks, found {len(parts)}")
+          encoded = "".join(part.read_text() for part in parts)
+          encoded_digest = hashlib.sha256(encoded.encode()).hexdigest()
+          expected_encoded = "53af1e8078fe6f3b99614cf437ab74daf5865d063c8dcdae253fb8fc3207839c"
+          if encoded_digest != expected_encoded:
+              raise SystemExit(f"NER encoded source hash mismatch: {encoded_digest}")
+          target = Path("benchmarks/ner_benchmark_optimized.py")
+          target.write_bytes(gzip.decompress(base64.b64decode(encoded)))
+          digest = hashlib.sha256(target.read_bytes()).hexdigest()
+          expected = "dcd57e54fbb127fd166898277d4ba99c8ce66268029fb17477bf99b9a9955fa0"
+          if digest != expected:
+              raise SystemExit(f"NER source hash mismatch: {digest}")
+
+          source = target.read_text(encoding="utf-8")
           replacements = {
               'configs = ((0.05, 0.05), (0.1, 0.05), (0.1, 0.1))': 'configs = ((0.1, 0.1),)',
               'max_iterations=120': 'max_iterations=70',
@@ -61,7 +72,8 @@ jobs:
               if old not in source:
                   raise RuntimeError(f"Expected NER source fragment not found: {old}")
               source = source.replace(old, new)
-          path.write_text(source, encoding="utf-8")
+          target.write_text(source, encoding="utf-8")
+          print(f"Optimized NER source created from verified digest: {digest}")
           PY
           python -m py_compile benchmarks/ner_benchmark_optimized.py
 
