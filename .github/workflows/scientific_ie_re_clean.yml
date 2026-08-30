@@ -1,0 +1,97 @@
+name: Scientific RE leakage-free benchmark
+
+on:
+  push:
+    branches:
+      - scientific-ie-re-clean-20260830
+    paths:
+      - "benchmarks/re_clean_parts/**"
+      - ".github/workflows/scientific_ie_re_clean.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: scientific-ie-re-clean-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHONHASHSEED: "20260830"
+  TOKENIZERS_PARALLELISM: "false"
+  HF_HUB_DISABLE_XET: "1"
+  OMP_NUM_THREADS: "2"
+  MKL_NUM_THREADS: "2"
+
+jobs:
+  relation_extraction_clean:
+    name: Scientific relation extraction — leakage-free external test
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    steps:
+      - name: Checkout clean benchmark branch
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Restore and verify clean RE source
+        shell: bash
+        run: |
+          python - <<'PY'
+          import base64, gzip, hashlib
+          from pathlib import Path
+
+          parts = sorted(Path("benchmarks/re_clean_parts").glob("part*"))
+          if len(parts) != 9:
+              raise SystemExit(f"Expected 9 RE source chunks, found {len(parts)}")
+          encoded = "".join(part.read_text() for part in parts)
+          encoded_digest = hashlib.sha256(encoded.encode()).hexdigest()
+          expected_encoded = "f28bb3662cf36ab691b43f67cbff2a1ec2a67af6c74992ecd7aac40e9ab0bd2e"
+          if encoded_digest != expected_encoded:
+              raise SystemExit(f"RE encoded source hash mismatch: {encoded_digest}")
+          target = Path("benchmarks/re_benchmark_clean.py")
+          target.write_bytes(gzip.decompress(base64.b64decode(encoded)))
+          digest = hashlib.sha256(target.read_bytes()).hexdigest()
+          expected = "54055d21291d97003560ed8455078d4e1a96df178ce0d74eaa65d2717d9b07f4"
+          if digest != expected:
+              raise SystemExit(f"RE source hash mismatch: {digest}")
+          print(f"Clean RE source verified: {digest}")
+          PY
+          python -m py_compile benchmarks/re_benchmark_clean.py
+
+      - name: Install pinned runtime
+        shell: bash
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install torch==2.5.1 --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install \
+            numpy==1.26.4 \
+            pandas==2.2.3 \
+            scikit-learn==1.5.2 \
+            requests==2.32.3 \
+            pyarrow==18.1.0 \
+            transformers==4.46.3 \
+            accelerate==1.1.1 \
+            safetensors==0.4.5
+
+      - name: Run complete leakage-free RE benchmark
+        shell: bash
+        run: |
+          python benchmarks/re_benchmark_clean.py --output results/re_clean --bootstrap 300 2>&1 | tee re_clean_full_run.log
+
+      - name: Upload leakage-free RE evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: re-clean-full-results
+          if-no-files-found: warn
+          retention-days: 14
+          path: |
+            re_clean_full_run.log
+            results/re_clean/*.csv
+            results/re_clean/*.json
+            results/re_clean/predictions/**
+            results/re_clean/confusion_matrices/**
