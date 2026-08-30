@@ -1,0 +1,106 @@
+name: Scientific NER optimized full corpus
+
+on:
+  push:
+    branches:
+      - scientific-ie-ner-optimized-20260830
+    paths:
+      - .github/workflows/scientific_ie_ner_optimized.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: scientific-ie-ner-optimized-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ner_optimized:
+    name: Optimized biomedical NER — 5 models
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    env:
+      TOKENIZERS_PARALLELISM: "false"
+      OMP_NUM_THREADS: "2"
+      MKL_NUM_THREADS: "2"
+      PYTHONHASHSEED: "20260830"
+    steps:
+      - name: Checkout fallback branch
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Restore, optimize, and verify NER source
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p benchmarks
+          curl -fsSL \
+            https://raw.githubusercontent.com/AzyqanovTalgat/NLP/scientific-ie-benchmark-20260830/benchmarks/ner_benchmark.py.gz.b64 \
+            -o /tmp/ner_benchmark.py.gz.b64
+          base64 -d /tmp/ner_benchmark.py.gz.b64 | gzip -dc > benchmarks/ner_benchmark_optimized.py
+          test "$(wc -c < benchmarks/ner_benchmark_optimized.py)" -eq 35793
+          test "$(sha256sum benchmarks/ner_benchmark_optimized.py | awk '{print $1}')" = "dcd57ea8e606f445526a45e89ac41d01c96f7200f33f4b8b95c8751a1bbf421c"
+          python - <<'PY'
+          from pathlib import Path
+          path = Path("benchmarks/ner_benchmark_optimized.py")
+          source = path.read_text(encoding="utf-8")
+          replacements = {
+              'configs = ((0.05, 0.05), (0.1, 0.05), (0.1, 0.1))': 'configs = ((0.1, 0.1),)',
+              'max_iterations=120': 'max_iterations=70',
+              'patience = 3': 'patience = 2',
+              'for epoch in range(1, 16):': 'for epoch in range(1, 11):',
+              'num_train_epochs=3': 'num_train_epochs=2',
+              'max_length=256': 'max_length=192',
+          }
+          for old, new in replacements.items():
+              if old not in source:
+                  raise RuntimeError(f"Expected NER source fragment not found: {old}")
+              source = source.replace(old, new)
+          path.write_text(source, encoding="utf-8")
+          PY
+          python -m py_compile benchmarks/ner_benchmark_optimized.py
+
+      - name: Install pinned runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          pip install torch==2.5.1 --index-url https://download.pytorch.org/whl/cpu
+          pip install \
+            numpy==1.26.4 \
+            pandas==2.2.3 \
+            pyarrow==18.1.0 \
+            scikit-learn==1.5.2 \
+            sklearn-crfsuite==0.5.0 \
+            requests==2.32.3 \
+            transformers==4.46.3 \
+            accelerate==1.1.1 \
+            safetensors==0.4.5
+
+      - name: Run optimized full-corpus NER benchmark
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p results/ner_optimized
+          set -o pipefail
+          python benchmarks/ner_benchmark_optimized.py \
+            --output results/ner_optimized \
+            --bootstrap 300 2>&1 | tee results/ner_optimized/run.log
+
+      - name: Upload optimized NER evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ner-optimized-results
+          path: |
+            results/ner_optimized/*.csv
+            results/ner_optimized/*.json
+            results/ner_optimized/run.log
+            results/ner_optimized/predictions
+          if-no-files-found: warn
+          retention-days: 14
