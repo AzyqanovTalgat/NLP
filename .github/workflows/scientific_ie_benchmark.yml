@@ -1,0 +1,155 @@
+name: Scientific IE full benchmark
+
+on:
+  push:
+    branches:
+      - scientific-ie-benchmark-20260830
+    paths:
+      - "benchmarks/**"
+      - ".github/workflows/scientific_ie_benchmark.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: scientific-ie-benchmark-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  PYTHONHASHSEED: "20260830"
+  TOKENIZERS_PARALLELISM: "false"
+  HF_HUB_DISABLE_XET: "1"
+  OMP_NUM_THREADS: "2"
+  MKL_NUM_THREADS: "2"
+
+jobs:
+  ner:
+    name: Biomedical NER — 5 models
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    steps:
+      - name: Checkout benchmark branch
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Restore and verify NER source
+        shell: bash
+        run: |
+          python - <<'PY'
+          import base64, gzip, hashlib
+          from pathlib import Path
+
+          source = Path("benchmarks/ner_benchmark.py.gz.b64")
+          target = Path("benchmarks/ner_benchmark.py")
+          target.write_bytes(gzip.decompress(base64.b64decode(source.read_text().strip())))
+          digest = hashlib.sha256(target.read_bytes()).hexdigest()
+          expected = "dcd57e54fbb127fd166898277d4ba99c8ce66268029fb17477bf99b9a9955fa0"
+          if digest != expected:
+              raise SystemExit(f"NER source hash mismatch: {digest}")
+          print(f"NER source verified: {digest}")
+          PY
+          python -m py_compile benchmarks/ner_benchmark.py
+
+      - name: Install pinned runtime
+        shell: bash
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install torch==2.5.1 --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install \
+            numpy==1.26.4 \
+            pandas==2.2.3 \
+            scikit-learn==1.5.2 \
+            sklearn-crfsuite==0.5.0 \
+            requests==2.32.3 \
+            pyarrow==18.1.0 \
+            transformers==4.46.3 \
+            accelerate==1.1.1 \
+            safetensors==0.4.5
+
+      - name: Run complete NER benchmark
+        shell: bash
+        run: |
+          python benchmarks/ner_benchmark.py --output results/ner --bootstrap 300 2>&1 | tee ner_full_run.log
+
+      - name: Upload NER evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ner-full-results
+          if-no-files-found: warn
+          retention-days: 7
+          path: |
+            ner_full_run.log
+            results/ner/*.csv
+            results/ner/*.json
+            results/ner/predictions/**
+
+  relation_extraction:
+    name: Scientific relation extraction — 5 models
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    steps:
+      - name: Checkout benchmark branch
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Restore and verify relation-extraction source
+        shell: bash
+        run: |
+          python - <<'PY'
+          import base64, gzip, hashlib
+          from pathlib import Path
+
+          source = Path("benchmarks/re_benchmark.py.gz.b64")
+          target = Path("benchmarks/re_benchmark.py")
+          target.write_bytes(gzip.decompress(base64.b64decode(source.read_text().strip())))
+          digest = hashlib.sha256(target.read_bytes()).hexdigest()
+          expected = "c7f3192573434b4f9481c8091cb5ee93f92fb968a47a444bccd52e667f21f36a"
+          if digest != expected:
+              raise SystemExit(f"RE source hash mismatch: {digest}")
+          print(f"RE source verified: {digest}")
+          PY
+          python -m py_compile benchmarks/re_benchmark.py
+
+      - name: Install pinned runtime
+        shell: bash
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install torch==2.5.1 --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install \
+            numpy==1.26.4 \
+            pandas==2.2.3 \
+            scikit-learn==1.5.2 \
+            requests==2.32.3 \
+            pyarrow==18.1.0 \
+            transformers==4.46.3 \
+            accelerate==1.1.1 \
+            safetensors==0.4.5
+
+      - name: Run complete relation-extraction benchmark
+        shell: bash
+        run: |
+          python benchmarks/re_benchmark.py --output results/re --bootstrap 300 2>&1 | tee re_full_run.log
+
+      - name: Upload relation-extraction evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: re-full-results
+          if-no-files-found: warn
+          retention-days: 7
+          path: |
+            re_full_run.log
+            results/re/*.csv
+            results/re/*.json
+            results/re/predictions/**
+            results/re/confusion_matrices/**
