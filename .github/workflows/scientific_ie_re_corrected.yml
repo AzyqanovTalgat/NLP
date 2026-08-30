@@ -44,7 +44,7 @@ jobs:
             -o /tmp/re_benchmark.py.gz.b64
           base64 -d /tmp/re_benchmark.py.gz.b64 | gzip -dc > benchmarks/re_benchmark_corrected.py
           test "$(wc -c < benchmarks/re_benchmark_corrected.py)" -eq 39686
-          test "$(sha256sum benchmarks/re_benchmark_corrected.py | awk '{print $1}')" = "980a99323aad63b3359526ef22d621301b96f5f0c6e5112a6e9564001959ce4f"
+          test "$(sha256sum benchmarks/re_benchmark_corrected.py | awk '{print $1}')" = "c7f3192573434b4f9481c8091cb5ee93f92fb968a47a444bccd52e667f21f36a"
           python - <<'PY'
           from pathlib import Path
           path = Path("benchmarks/re_benchmark_corrected.py")
