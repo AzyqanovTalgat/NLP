@@ -40,9 +40,9 @@ jobs:
           set -euo pipefail
           mkdir -p benchmarks
           curl -fsSL \
-            https://raw.githubusercontent.com/AzyqanovTalgat/NLP/scientific-ie-benchmark-20260830/benchmarks/re_benchmark.py.gz \
-            -o /tmp/re_benchmark.py.gz
-          gzip -dc /tmp/re_benchmark.py.gz > benchmarks/re_benchmark_corrected.py
+            https://raw.githubusercontent.com/AzyqanovTalgat/NLP/scientific-ie-benchmark-20260830/benchmarks/re_benchmark.py.gz.b64 \
+            -o /tmp/re_benchmark.py.gz.b64
+          base64 -d /tmp/re_benchmark.py.gz.b64 | gzip -dc > benchmarks/re_benchmark_corrected.py
           test "$(wc -c < benchmarks/re_benchmark_corrected.py)" -eq 39686
           test "$(sha256sum benchmarks/re_benchmark_corrected.py | awk '{print $1}')" = "980a99323aad63b3359526ef22d621301b96f5f0c6e5112a6e9564001959ce4f"
           python - <<'PY'
