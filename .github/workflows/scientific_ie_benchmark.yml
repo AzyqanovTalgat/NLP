@@ -14,7 +14,7 @@ permissions:
 
 concurrency:
   group: scientific-ie-benchmark-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 env:
   PYTHONHASHSEED: "20260830"
@@ -44,9 +44,16 @@ jobs:
           import base64, gzip, hashlib
           from pathlib import Path
 
-          source = Path("benchmarks/ner_benchmark.py.gz.b64")
+          parts = sorted(Path("benchmarks/ner_parts").glob("part*"))
+          if len(parts) != 8:
+              raise SystemExit(f"Expected 8 NER source chunks, found {len(parts)}")
+          encoded = "".join(part.read_text() for part in parts)
+          encoded_digest = hashlib.sha256(encoded.encode()).hexdigest()
+          expected_encoded = "53af1e8078fe6f3b99614cf437ab74daf5865d063c8dcdae253fb8fc3207839c"
+          if encoded_digest != expected_encoded:
+              raise SystemExit(f"NER encoded source hash mismatch: {encoded_digest}")
           target = Path("benchmarks/ner_benchmark.py")
-          target.write_bytes(gzip.decompress(base64.b64decode(source.read_text().strip())))
+          target.write_bytes(gzip.decompress(base64.b64decode(encoded)))
           digest = hashlib.sha256(target.read_bytes()).hexdigest()
           expected = "dcd57e54fbb127fd166898277d4ba99c8ce66268029fb17477bf99b9a9955fa0"
           if digest != expected:
@@ -82,7 +89,7 @@ jobs:
         with:
           name: ner-full-results
           if-no-files-found: warn
-          retention-days: 7
+          retention-days: 14
           path: |
             ner_full_run.log
             results/ner/*.csv
@@ -146,7 +153,7 @@ jobs:
         with:
           name: re-full-results
           if-no-files-found: warn
-          retention-days: 7
+          retention-days: 14
           path: |
             re_full_run.log
             results/re/*.csv
