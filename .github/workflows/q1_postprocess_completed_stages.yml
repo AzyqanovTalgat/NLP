@@ -1,0 +1,105 @@
+name: Q1 biomedical validation — independent postprocess
+
+on:
+  push:
+    branches:
+      - experiment/q1-biomedical-postprocess-20260831
+    paths-ignore:
+      - 'q1_validation/postprocessed/**'
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: write
+
+env:
+  GH_TOKEN: ${{ github.token }}
+  SOURCE_RUN_ID: '33362403594'
+  REPOSITORY: AzyqanovTalgat/NLP
+  POSTPROCESS_BRANCH: experiment/q1-biomedical-postprocess-20260831
+
+jobs:
+  postprocess:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    steps:
+      - name: Checkout isolated postprocess branch
+        uses: actions/checkout@v4
+        with:
+          ref: experiment/q1-biomedical-postprocess-20260831
+      - name: Wait for all three completed stage artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          required=(q1-baselines-final q1-ner-sota-final q1-re-sota-final)
+          for attempt in $(seq 1 330); do
+            payload=$(gh api "repos/${REPOSITORY}/actions/runs/${SOURCE_RUN_ID}/artifacts")
+            missing=0
+            for name in "${required[@]}"; do
+              if ! jq -e --arg name "$name" '.artifacts[] | select(.name == $name and .expired == false)' <<<"$payload" >/dev/null; then
+                missing=1
+              fi
+            done
+            if [[ "$missing" -eq 0 ]]; then
+              echo "All stage artifacts are available."
+              exit 0
+            fi
+            status=$(gh api "repos/${REPOSITORY}/actions/runs/${SOURCE_RUN_ID}" --jq '.status + ":" + (.conclusion // "")')
+            echo "Attempt ${attempt}: source=${status}; stage artifacts not complete yet."
+            if [[ "$status" == completed:* && "$status" != completed:success ]]; then
+              # Jobs upload their logs with if:always(); allow a brief grace period for those artifacts.
+              if [[ "$attempt" -gt 5 ]]; then
+                echo "Source workflow completed without all required successful-stage artifacts."
+                gh api "repos/${REPOSITORY}/actions/runs/${SOURCE_RUN_ID}/jobs" > source_jobs.json
+                exit 1
+              fi
+            fi
+            sleep 60
+          done
+          echo "Timed out before stage artifacts became available."
+          exit 1
+      - name: Download exact artifacts from source run
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p q1_validation/postprocess_input/baselines q1_validation/postprocess_input/ner_sota q1_validation/postprocess_input/re_sota
+          gh run download "$SOURCE_RUN_ID" --repo "$REPOSITORY" --name q1-baselines-final --dir q1_validation/postprocess_input/baselines
+          gh run download "$SOURCE_RUN_ID" --repo "$REPOSITORY" --name q1-ner-sota-final --dir q1_validation/postprocess_input/ner_sota
+          gh run download "$SOURCE_RUN_ID" --repo "$REPOSITORY" --name q1-re-sota-final --dir q1_validation/postprocess_input/re_sota
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install postprocess dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install numpy==1.26.4 pandas==2.2.3 scikit-learn==1.5.2 tabulate==0.9.0
+      - name: Compile and build final evidence package
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m py_compile q1_validation/postprocess_artifacts.py
+          rm -rf q1_validation/postprocessed/final
+          python q1_validation/postprocess_artifacts.py \
+            --baseline q1_validation/postprocess_input/baselines \
+            --ner-sota q1_validation/postprocess_input/ner_sota \
+            --re-sota q1_validation/postprocess_input/re_sota \
+            --output q1_validation/postprocessed/final \
+            --source-run "$SOURCE_RUN_ID" 2>&1 | tee q1_validation/postprocessed/postprocess.log
+      - name: Upload independent final evidence package
+        uses: actions/upload-artifact@v4
+        with:
+          name: q1-biomedical-validation-independent-final
+          if-no-files-found: error
+          retention-days: 30
+          path: |
+            q1_validation/postprocessed/final/
+            q1_validation/postprocessed/postprocess.log
+      - name: Commit independent final report
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git pull --rebase origin "$POSTPROCESS_BRANCH"
+          git add q1_validation/postprocessed
+          git diff --cached --quiet || git commit -m 'Add independently aggregated Q1 results [skip ci]'
+          git push origin HEAD:"$POSTPROCESS_BRANCH"
