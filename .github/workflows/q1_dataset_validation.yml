@@ -12,10 +12,21 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: q1-biomedical-validation-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHONUNBUFFERED: '1'
+  TOKENIZERS_PARALLELISM: 'false'
+  HF_HUB_DISABLE_XET: '1'
+  OMP_NUM_THREADS: '4'
+  MKL_NUM_THREADS: '4'
+
 jobs:
-  inspect:
+  baselines:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 240
     steps:
       - name: Checkout experiment branch
         uses: actions/checkout@v4
@@ -25,12 +36,140 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - name: Inspect official archives
-        run: python q1_validation/inspect_archives.py
-      - name: Commit inventory
+      - name: Install CPU PyTorch
+        run: python -m pip install torch==2.5.1 --index-url https://download.pytorch.org/whl/cpu
+      - name: Install baseline dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install numpy==1.26.4 pandas==2.2.3 scipy==1.14.1 scikit-learn==1.5.2 joblib==1.4.2 sklearn-crfsuite==0.5.0
+      - name: Compile experiment code
+        run: python -m py_compile q1_validation/common.py q1_validation/run_baselines.py
+      - name: Train three baselines and deep NLP models
+        run: python q1_validation/run_baselines.py
+      - name: Upload baseline evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: q1-baselines
+          if-no-files-found: error
+          retention-days: 7
+          path: |
+            q1_validation/results/stage_baselines/ner_metrics.csv
+            q1_validation/results/stage_baselines/re_metrics.csv
+            q1_validation/results/stage_baselines/dataset_audit.json
+            q1_validation/results/stage_baselines/training_curves.json
+            q1_validation/results/stage_baselines/predictions.json.gz
+            q1_validation/results/stage_baselines/complete.json
+
+  ner_sota:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    steps:
+      - name: Checkout experiment branch
+        uses: actions/checkout@v4
+        with:
+          ref: experiment/q1-biomedical-ner-re-20260831
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install CPU PyTorch
+        run: python -m pip install torch==2.5.1 --index-url https://download.pytorch.org/whl/cpu
+      - name: Install Transformer dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install numpy==1.26.4 pandas==2.2.3 scipy==1.14.1 scikit-learn==1.5.2 transformers==4.44.2 accelerate==0.34.2 safetensors==0.4.5
+      - name: Compile NER SOTA code
+        run: python -m py_compile q1_validation/common.py q1_validation/run_ner_sota.py
+      - name: Fine-tune BiomedBERT for scientific disease NER
+        run: python q1_validation/run_ner_sota.py
+      - name: Upload NER SOTA evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: q1-ner-sota
+          if-no-files-found: error
+          retention-days: 7
+          path: |
+            q1_validation/results/stage_ner_sota/ner_metrics.csv
+            q1_validation/results/stage_ner_sota/predictions.json.gz
+            q1_validation/results/stage_ner_sota/training_state.json
+            q1_validation/results/stage_ner_sota/complete.json
+
+  re_sota:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    steps:
+      - name: Checkout experiment branch
+        uses: actions/checkout@v4
+        with:
+          ref: experiment/q1-biomedical-ner-re-20260831
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install CPU PyTorch
+        run: python -m pip install torch==2.5.1 --index-url https://download.pytorch.org/whl/cpu
+      - name: Install Transformer dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install numpy==1.26.4 pandas==2.2.3 scipy==1.14.1 scikit-learn==1.5.2 transformers==4.44.2 accelerate==0.34.2 safetensors==0.4.5
+      - name: Compile RE SOTA code
+        run: python -m py_compile q1_validation/common.py q1_validation/run_re_sota.py
+      - name: Fine-tune entity-marker BiomedBERT for DDI relation extraction
+        run: python q1_validation/run_re_sota.py
+      - name: Upload RE SOTA evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: q1-re-sota
+          if-no-files-found: error
+          retention-days: 7
+          path: |
+            q1_validation/results/stage_re_sota/re_metrics.csv
+            q1_validation/results/stage_re_sota/predictions.json.gz
+            q1_validation/results/stage_re_sota/per_class_metrics.json
+            q1_validation/results/stage_re_sota/training_state.json
+            q1_validation/results/stage_re_sota/complete.json
+
+  aggregate:
+    needs: [baselines, ner_sota, re_sota]
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout experiment branch
+        uses: actions/checkout@v4
+        with:
+          ref: experiment/q1-biomedical-ner-re-20260831
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install report dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install numpy==1.26.4 pandas==2.2.3 scipy==1.14.1 scikit-learn==1.5.2 matplotlib==3.9.2 tabulate==0.9.0
+      - name: Download baseline evidence
+        uses: actions/download-artifact@v4
+        with:
+          name: q1-baselines
+          path: q1_validation/results/incoming/baselines
+      - name: Download NER SOTA evidence
+        uses: actions/download-artifact@v4
+        with:
+          name: q1-ner-sota
+          path: q1_validation/results/incoming/ner_sota
+      - name: Download RE SOTA evidence
+        uses: actions/download-artifact@v4
+        with:
+          name: q1-re-sota
+          path: q1_validation/results/incoming/re_sota
+      - name: Compile and aggregate all evidence
+        run: |
+          python -m py_compile q1_validation/common.py q1_validation/aggregate_results.py
+          python q1_validation/aggregate_results.py
+      - name: Commit final reproducible report
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add q1_validation/archive_inventory.json
-          git diff --cached --quiet || git commit -m 'Add archive inventory [skip ci]'
+          git pull --rebase origin experiment/q1-biomedical-ner-re-20260831
+          git add q1_validation/results/final
+          git diff --cached --quiet || git commit -m 'Add full Q1 dataset validation results [skip ci]'
           git push origin HEAD:experiment/q1-biomedical-ner-re-20260831
