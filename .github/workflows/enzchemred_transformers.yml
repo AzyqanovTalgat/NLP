@@ -1,0 +1,87 @@
+name: EnzChemRED unified linked-task Transformers
+
+on:
+  push:
+    branches:
+      - experiment/enzchemred-unified-q1-20260831
+    paths:
+      - 'enzchemred_q1/train_transformer.py'
+      - '.github/workflows/enzchemred_transformers.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  PYTHONUNBUFFERED: '1'
+  TOKENIZERS_PARALLELISM: 'false'
+  HF_HUB_DISABLE_XET: '1'
+  TRANSFORMERS_NO_TORCHVISION: '1'
+  OMP_NUM_THREADS: '4'
+  MKL_NUM_THREADS: '4'
+  MODEL_NAME: microsoft/BiomedNLP-BiomedBERT-base-uncased-abstract-fulltext
+
+jobs:
+  ner_transformer:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: experiment/enzchemred-unified-q1-20260831
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install CPU training stack
+        run: |
+          python -m pip install torch==2.5.1 --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install numpy==1.26.4 pandas==2.2.3 scipy==1.14.1 scikit-learn==1.5.2 transformers==4.44.2 tokenizers==0.19.1 click==8.1.8 spacy==3.8.7
+      - name: Prepare the complete common corpus split
+        run: python enzchemred_q1/prepare_data.py
+      - name: Train and test PubMedBERT NER
+        env:
+          DATA_DIR: enzchemred_q1/prepared
+          OUTPUT_DIR: enzchemred_q1/results/ner_transformer
+        run: |
+          mkdir -p enzchemred_q1/results/ner_transformer
+          set -o pipefail
+          python enzchemred_q1/train_transformer.py ner 2>&1 | tee enzchemred_q1/results/ner_transformer/job.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: enzchemred-ner-transformer
+          retention-days: 14
+          if-no-files-found: warn
+          path: enzchemred_q1/results/ner_transformer/
+
+  re_transformer:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: experiment/enzchemred-unified-q1-20260831
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install CPU training stack
+        run: |
+          python -m pip install torch==2.5.1 --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install numpy==1.26.4 pandas==2.2.3 scipy==1.14.1 scikit-learn==1.5.2 transformers==4.44.2 tokenizers==0.19.1 click==8.1.8 spacy==3.8.7
+      - name: Prepare the complete common corpus split
+        run: python enzchemred_q1/prepare_data.py
+      - name: Train and test PubMedBERT entity-marker RE
+        env:
+          DATA_DIR: enzchemred_q1/prepared
+          OUTPUT_DIR: enzchemred_q1/results/re_transformer
+        run: |
+          mkdir -p enzchemred_q1/results/re_transformer
+          set -o pipefail
+          python enzchemred_q1/train_transformer.py re 2>&1 | tee enzchemred_q1/results/re_transformer/job.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: enzchemred-re-transformer
+          retention-days: 14
+          if-no-files-found: warn
+          path: enzchemred_q1/results/re_transformer/
