@@ -1,0 +1,72 @@
+name: Export EnzChemRED PubMed metadata
+
+on:
+  push:
+    branches:
+      - experiment/enzchemred-q1-unified-20260901
+    paths:
+      - '.github/workflows/export_enzchemred_pubmed_metadata.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  export-metadata:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout isolated branch
+        uses: actions/checkout@v4
+        with:
+          ref: experiment/enzchemred-q1-unified-20260901
+      - name: Download corpus and retrieve PubMed years
+        run: |
+          set -euxo pipefail
+          mkdir -p export/corpus export/out
+          curl -L --retry 6 --fail https://ftp.expasy.org/databases/rhea/nlp/EnzChemRED.tar.gz -o export/corpus/EnzChemRED.tar.gz
+          tar -xzf export/corpus/EnzChemRED.tar.gz -C export/corpus
+          python - <<'PY'
+          from pathlib import Path
+          import csv, time, urllib.parse, urllib.request, xml.etree.ElementTree as ET
+
+          ids = sorted(p.stem for p in Path('export/corpus/EnzChemRED').glob('*.xml'))
+          rows = []
+          for start in range(0, len(ids), 150):
+              batch = ids[start:start+150]
+              query = urllib.parse.urlencode({'db':'pubmed','id':','.join(batch),'retmode':'xml'})
+              url = 'https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?' + query
+              request = urllib.request.Request(url, headers={'User-Agent':'EnzChemRED-Q1-validation/1.0 contact=talgat@example.com'})
+              with urllib.request.urlopen(request, timeout=120) as response:
+                  root = ET.fromstring(response.read())
+              for article in root.findall('.//PubmedArticle'):
+                  pmid = article.findtext('.//PMID') or ''
+                  journal_year = article.findtext('.//JournalIssue/PubDate/Year')
+                  medline_date = article.findtext('.//JournalIssue/PubDate/MedlineDate') or ''
+                  article_date = article.findtext('.//ArticleDate/Year')
+                  date_completed = article.findtext('.//DateCompleted/Year')
+                  year = journal_year or article_date or date_completed
+                  if not year and medline_date:
+                      digits = ''.join(ch if ch.isdigit() else ' ' for ch in medline_date).split()
+                      year = next((x for x in digits if len(x)==4), '')
+                  journal = article.findtext('.//Journal/Title') or ''
+                  title = ''.join(article.find('.//ArticleTitle').itertext()) if article.find('.//ArticleTitle') is not None else ''
+                  rows.append({'pmid':pmid,'year':year or '', 'journal':journal, 'title':title})
+              time.sleep(0.4)
+          found = {r['pmid'] for r in rows}
+          for pmid in ids:
+              if pmid not in found:
+                  rows.append({'pmid':pmid,'year':'','journal':'','title':''})
+          rows.sort(key=lambda r: int(r['pmid']) if r['pmid'].isdigit() else 0)
+          with open('export/out/enzchemred_pubmed_metadata.csv','w',newline='',encoding='utf-8') as fp:
+              writer=csv.DictWriter(fp,fieldnames=['pmid','year','journal','title'])
+              writer.writeheader(); writer.writerows(rows)
+          print({'requested':len(ids),'returned':len(rows),'with_year':sum(bool(r['year']) for r in rows)})
+          PY
+      - name: Upload metadata
+        uses: actions/upload-artifact@v4
+        with:
+          name: enzchemred-pubmed-metadata
+          path: export/out/enzchemred_pubmed_metadata.csv
+          retention-days: 14
+          if-no-files-found: error
