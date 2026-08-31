@@ -1,4 +1,4 @@
-name: Export DDI Q1 Python wheels
+name: Export DDI Q1 minimal Python wheels
 
 on:
   push:
@@ -24,25 +24,22 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.13'
-      - name: Build and download compatible wheels
+      - name: Build a minimal offline wheelhouse
         run: |
           set -euxo pipefail
           mkdir -p exported_wheels
           python -m pip install --upgrade pip wheel setuptools
-          python -m pip download --only-binary=:all: --dest exported_wheels \
-            transformers==4.57.6 \
-            tokenizers==0.22.1 \
-            python-crfsuite==0.9.11
-          python -m pip wheel --wheel-dir exported_wheels \
-            seqeval==1.2.2 \
-            sklearn-crfsuite==0.5.0 \
-            TorchCRF==1.1.0 \
-            tabulate==0.9.0
+          python -m pip download --no-deps --only-binary=:all: --dest exported_wheels \
+            transformers==4.57.6 tokenizers==0.22.1 python-crfsuite==0.9.11 \
+            huggingface-hub==0.36.2 safetensors==0.6.2 regex==2026.8.31 \
+            requests==2.34.2 packaging==26.3 PyYAML==6.0.3 tqdm==4.70.0 filelock==3.32.3
+          python -m pip wheel --no-deps --wheel-dir exported_wheels \
+            seqeval==1.2.2 sklearn-crfsuite==0.5.0 TorchCRF==1.1.0 tabulate==0.9.0
           ls -lh exported_wheels
-      - name: Upload wheels
+      - name: Upload minimal wheelhouse
         uses: actions/upload-artifact@v4
         with:
-          name: ddi-q1-wheels-py313
+          name: ddi-q1-minimal-wheels-py313
           path: exported_wheels/
           retention-days: 14
           if-no-files-found: error
