@@ -1,0 +1,36 @@
+name: Q1 biomedical dataset validation
+
+on:
+  push:
+    branches:
+      - experiment/q1-biomedical-ner-re-20260831
+    paths-ignore:
+      - 'q1_validation/results/**'
+      - 'q1_validation/archive_inventory.json'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout experiment branch
+        uses: actions/checkout@v4
+        with:
+          ref: experiment/q1-biomedical-ner-re-20260831
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Inspect official archives
+        run: python q1_validation/inspect_archives.py
+      - name: Commit inventory
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add q1_validation/archive_inventory.json
+          git diff --cached --quiet || git commit -m 'Add archive inventory [skip ci]'
+          git push origin HEAD:experiment/q1-biomedical-ner-re-20260831
