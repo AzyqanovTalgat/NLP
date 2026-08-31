@@ -1,0 +1,107 @@
+{
+  "documents": 1210,
+  "archive_sha256": "046f6c00663d26cf172cb828b3fe68cab92a128de947545c01aff53060c06251",
+  "split_summary": {
+    "train": {
+      "documents": 847,
+      "year_min": 1967,
+      "year_median": 2005.0,
+      "year_max": 2014,
+      "entities": {
+        "Protein": 9100,
+        "Chemical": 13295
+      },
+      "relations": {
+        "Conversion": 3116,
+        "Indirect_conversion": 313,
+        "Non_conversion": 13
+      },
+      "ner_sequences": 8679,
+      "re_candidates": 17703,
+      "re_positive": 3203
+    },
+    "dev": {
+      "documents": 121,
+      "year_min": 1966,
+      "year_median": 2004.0,
+      "year_max": 2014,
+      "entities": {
+        "Protein": 1173,
+        "Chemical": 1824
+      },
+      "relations": {
+        "Conversion": 466,
+        "Indirect_conversion": 27,
+        "Non_conversion": 1
+      },
+      "ner_sequences": 1217,
+      "re_candidates": 2289,
+      "re_positive": 475
+    },
+    "id_test": {
+      "documents": 121,
+      "year_min": 1974,
+      "year_median": 2004.0,
+      "year_max": 2014,
+      "entities": {
+        "Protein": 1330,
+        "Chemical": 1860
+      },
+      "relations": {
+        "Conversion": 494,
+        "Indirect_conversion": 38,
+        "Non_conversion": 3
+      },
+      "ner_sequences": 1203,
+      "re_candidates": 2509,
+      "re_positive": 499
+    },
+    "temporal_ood_test": {
+      "documents": 121,
+      "year_min": 2014,
+      "year_median": 2016.0,
+      "year_max": 2020,
+      "entities": {
+        "Protein": 1425,
+        "Chemical": 1908
+      },
+      "relations": {
+        "Conversion": 436,
+        "Indirect_conversion": 49,
+        "Non_conversion": 3
+      },
+      "ner_sequences": 1149,
+      "re_candidates": 2568,
+      "re_positive": 464
+    }
+  },
+  "example_audit": {
+    "token_label_conflicts": 30,
+    "ner_entities_total": 31899,
+    "ner_entities_boundary_recoverable": 31899,
+    "relations_with_fewer_than_two_chemicals": 100,
+    "entities_crossing_sentence_boundary": 32,
+    "overlapping_chemical_pairs_skipped": 39,
+    "relation_annotations_by_type": {
+      "Conversion": 4422,
+      "Indirect_conversion": 417,
+      "Non_conversion": 20
+    },
+    "candidate_pairs_by_type": {
+      "Conversion": 4237,
+      "None": 20410,
+      "Indirect_conversion": 404,
+      "Non_conversion": 18
+    }
+  },
+  "files": {
+    "ner_train": 8679,
+    "re_train": 17703,
+    "ner_dev": 1217,
+    "re_dev": 2289,
+    "ner_id_test": 1203,
+    "re_id_test": 2509,
+    "ner_temporal_ood_test": 1149,
+    "re_temporal_ood_test": 2568
+  }
+}
