@@ -1,0 +1,42 @@
+name: EnzChemRED unified Q1 inspection
+
+on:
+  push:
+    branches:
+      - experiment/enzchemred-unified-q1-20260831
+    paths:
+      - 'enzchemred_q1/inspect_dataset.py'
+      - '.github/workflows/enzchemred_inspect.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  PYTHONUNBUFFERED: '1'
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: experiment/enzchemred-unified-q1-20260831
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Download and inspect full official corpus
+        run: python enzchemred_q1/inspect_dataset.py
+      - name: Commit inspection evidence
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add enzchemred_q1/inspection/dataset_inspection.json
+          git diff --cached --quiet || git commit -m 'Add EnzChemRED inspection evidence [skip ci]'
+          git push origin HEAD:experiment/enzchemred-unified-q1-20260831
+      - uses: actions/upload-artifact@v4
+        with:
+          name: enzchemred-inspection
+          retention-days: 14
+          path: enzchemred_q1/inspection/dataset_inspection.json
