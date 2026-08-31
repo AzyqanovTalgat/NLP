@@ -1,0 +1,64 @@
+name: Collect EnzChemRED BiomedBERT-small evidence
+
+on:
+  push:
+    branches:
+      - experiment/enzchemred-unified-q1-20260831
+    paths:
+      - '.github/workflows/enzchemred_collect_small.yml'
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: experiment/enzchemred-unified-q1-20260831
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install pandas
+        run: python -m pip install pandas==2.2.3
+      - name: Download completed small transformer artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: enzchemred-small-transformer-re
+          path: collected_small
+          run-id: 33430557126
+          github-token: ${{ github.token }}
+      - name: Create durable decision evidence
+        run: |
+          mkdir -p enzchemred_q1/final_evidence
+          cp collected_small/re_tiny_transformer_results.csv enzchemred_q1/final_evidence/re_biomedbert_small_results.csv
+          cp collected_small/re_tiny_training_state.json enzchemred_q1/final_evidence/re_biomedbert_small_training_state.json
+          python - <<'PY'
+          import json
+          import pandas as pd
+          from pathlib import Path
+          root=Path('enzchemred_q1/final_evidence')
+          df=pd.read_csv(root/'re_biomedbert_small_results.csv')
+          idr=df.loc[df['split']=='id_test'].iloc[0]
+          ood=df.loc[df['split']=='temporal_ood_test'].iloc[0]
+          decision={
+            'model': str(idr['model']),
+            'id_test': {k: float(idr[k]) for k in ['precision','recall','positive_f1','accuracy','balanced_accuracy','mcc','roc_auc','pr_auc','ci95_low','ci95_high']},
+            'temporal_ood_test': {k: float(ood[k]) for k in ['precision','recall','positive_f1','accuracy','balanced_accuracy','mcc','roc_auc','pr_auc','ci95_low','ci95_high']},
+            'passes_f1_0_75_both': bool(idr['positive_f1'] >= .75 and ood['positive_f1'] >= .75),
+            'passes_precision_recall_0_70_both': bool(min(idr['precision'],idr['recall'],ood['precision'],ood['recall']) >= .70),
+          }
+          (root/'re_biomedbert_small_decision.json').write_text(json.dumps(decision,indent=2),encoding='utf-8')
+          print(json.dumps(decision,indent=2))
+          PY
+      - name: Commit results
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add enzchemred_q1/final_evidence
+          git diff --cached --quiet || git commit -m 'Add completed EnzChemRED BiomedBERT-small results [skip ci]'
+          git pull --rebase origin experiment/enzchemred-unified-q1-20260831
+          git push origin HEAD:experiment/enzchemred-unified-q1-20260831
