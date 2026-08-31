@@ -3,7 +3,6 @@ from __future__ import annotations
 import gzip
 import json
 import time
-from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -113,7 +112,11 @@ def decode_predictions(predictions: np.ndarray, labels: np.ndarray) -> tuple[lis
 def compute_metrics(eval_prediction):
     truth, pred = decode_predictions(eval_prediction.predictions, eval_prediction.label_ids)
     metrics = ner_metrics(truth, pred)
-    return {key: value for key, value in metrics.items() if not key.startswith("entity_t") and not key.startswith("entity_f")}
+    return {
+        key: value
+        for key, value in metrics.items()
+        if key not in {"entity_tp", "entity_fp", "entity_fn"}
+    }
 
 
 def main() -> None:
