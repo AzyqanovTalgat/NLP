@@ -1,0 +1,46 @@
+name: Export DDI Q1 Python wheels
+
+on:
+  push:
+    branches:
+      - experiment/ddi-q1-unified-20260901
+    paths:
+      - '.github/workflows/export_ddi_q1_wheels.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  export-wheels:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout isolated branch
+        uses: actions/checkout@v4
+        with:
+          ref: experiment/ddi-q1-unified-20260901
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Download compatible wheels
+        run: |
+          set -euxo pipefail
+          mkdir -p exported_wheels
+          python -m pip download --only-binary=:all: --dest exported_wheels \
+            transformers==4.57.6 \
+            tokenizers==0.22.1 \
+            seqeval==1.2.2 \
+            sklearn-crfsuite==0.5.0 \
+            python-crfsuite==0.9.11 \
+            TorchCRF==1.1.0
+          python -m pip download --dest exported_wheels tabulate==0.9.0
+          ls -lh exported_wheels
+      - name: Upload wheels
+        uses: actions/upload-artifact@v4
+        with:
+          name: ddi-q1-wheels-py313
+          path: exported_wheels/
+          retention-days: 14
+          if-no-files-found: error
