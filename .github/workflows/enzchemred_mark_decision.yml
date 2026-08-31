@@ -1,0 +1,42 @@
+name: Persist EnzChemRED relation decision marker
+
+on:
+  push:
+    branches:
+      - experiment/enzchemred-unified-q1-20260831
+    paths:
+      - '.github/workflows/enzchemred_mark_decision.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  mark:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: experiment/enzchemred-unified-q1-20260831
+      - name: Persist pass or fail marker
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          root=Path('enzchemred_q1/final_evidence')
+          data=json.loads((root/'re_biomedbert_small_decision.json').read_text())
+          for p in [root/'RE_PASS.md', root/'RE_FAIL.md']:
+              p.unlink(missing_ok=True)
+          status='PASS' if data['passes_f1_0_75_both'] else 'FAIL'
+          target=root/f'RE_{status}.md'
+          target.write_text(f"# {status}\n\n```json\n{json.dumps(data,indent=2)}\n```\n",encoding='utf-8')
+          print(target)
+          PY
+      - name: Commit marker
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A enzchemred_q1/final_evidence
+          git diff --cached --quiet || git commit -m 'Persist EnzChemRED relation acceptance marker [skip ci]'
+          git pull --rebase origin experiment/enzchemred-unified-q1-20260831
+          git push origin HEAD:experiment/enzchemred-unified-q1-20260831
