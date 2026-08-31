@@ -27,7 +27,7 @@ jobs:
         with:
           python-version: '3.11'
       - name: Install preprocessing dependencies
-        run: python -m pip install numpy==1.26.4 scikit-learn==1.5.2 spacy==3.8.7
+        run: python -m pip install numpy==1.26.4 scikit-learn==1.5.2 click==8.1.8 spacy==3.8.7
       - name: Prepare full corpus and common document splits
         run: |
           mkdir -p enzchemred_q1/prepared
