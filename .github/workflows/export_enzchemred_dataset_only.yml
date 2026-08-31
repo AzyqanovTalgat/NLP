@@ -1,0 +1,38 @@
+name: Export EnzChemRED dataset only
+
+on:
+  push:
+    branches:
+      - experiment/enzchemred-q1-unified-20260901
+    paths:
+      - '.github/workflows/export_enzchemred_dataset_only.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  export-dataset:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout isolated branch
+        uses: actions/checkout@v4
+        with:
+          ref: experiment/enzchemred-q1-unified-20260901
+      - name: Download official EnzChemRED dataset
+        run: |
+          set -euxo pipefail
+          mkdir -p export
+          curl -L --retry 6 --fail \
+            https://ftp.expasy.org/databases/rhea/nlp/EnzChemRED.tar.gz \
+            -o export/EnzChemRED.tar.gz
+          tar -tzf export/EnzChemRED.tar.gz | tee export/archive_tree.txt
+          sha256sum export/EnzChemRED.tar.gz > export/checksum.txt
+      - name: Upload dataset
+        uses: actions/upload-artifact@v4
+        with:
+          name: enzchemred-dataset-only
+          path: export/
+          retention-days: 14
+          if-no-files-found: error
