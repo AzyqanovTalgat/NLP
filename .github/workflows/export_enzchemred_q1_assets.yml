@@ -1,0 +1,76 @@
+name: Export EnzChemRED Q1 assets
+
+on:
+  push:
+    branches:
+      - experiment/enzchemred-q1-unified-20260901
+    paths:
+      - '.github/workflows/export_enzchemred_q1_assets.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  export-assets:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Checkout isolated branch
+        uses: actions/checkout@v4
+        with:
+          ref: experiment/enzchemred-q1-unified-20260901
+
+      - name: Download and inspect official EnzChemRED pipeline
+        run: |
+          set -euxo pipefail
+          mkdir -p export/source export/selected
+          curl -L --retry 6 --fail \
+            https://ftp.ncbi.nlm.nih.gov/pub/lu/EnzChemRED/EnzChemRED_pipeline.tar \
+            -o export/source/EnzChemRED_pipeline.tar
+          tar -xf export/source/EnzChemRED_pipeline.tar -C export/source
+          python - <<'PY'
+          from pathlib import Path
+          import hashlib, json, shutil
+
+          root = Path('export/source')
+          selected = Path('export/selected')
+          selected.mkdir(parents=True, exist_ok=True)
+          rows = []
+          allowed = {'.txt','.tsv','.csv','.json','.jsonl','.xml','.ann','.a1','.a2','.py','.md','.rst','.yaml','.yml','.ini','.cfg','.conf','.gz','.zip'}
+          keywords = ('train','dev','valid','test','data','corpus','dataset','enzchem','pubtator','bioc','ner','relation','re_')
+          for path in sorted(root.rglob('*')):
+              if not path.is_file():
+                  continue
+              rel = path.relative_to(root)
+              size = path.stat().st_size
+              rows.append({'path': str(rel), 'bytes': size})
+              low = str(rel).lower()
+              if path.suffix.lower() in allowed and size <= 250_000_000 and any(k in low for k in keywords):
+                  dst = selected / rel
+                  dst.parent.mkdir(parents=True, exist_ok=True)
+                  shutil.copy2(path, dst)
+          manifest = {
+              'archive_bytes': (root/'EnzChemRED_pipeline.tar').stat().st_size,
+              'files': rows,
+          }
+          Path('export/tree_manifest.json').write_text(json.dumps(manifest, indent=2), encoding='utf-8')
+          print(json.dumps({'archive_bytes': manifest['archive_bytes'], 'file_count': len(rows), 'selected_count': sum(1 for p in selected.rglob('*') if p.is_file())}, indent=2))
+          print('\nSELECTED FILES')
+          for p in sorted(selected.rglob('*')):
+              if p.is_file():
+                  print(p, p.stat().st_size)
+          PY
+          tar -czf export/enzchemred_selected_assets.tar.gz -C export/selected .
+          sha256sum export/source/EnzChemRED_pipeline.tar export/enzchemred_selected_assets.tar.gz > export/checksums.txt
+
+      - name: Upload selected assets and inventory
+        uses: actions/upload-artifact@v4
+        with:
+          name: enzchemred-q1-assets
+          path: |
+            export/enzchemred_selected_assets.tar.gz
+            export/tree_manifest.json
+            export/checksums.txt
+          retention-days: 14
+          if-no-files-found: error
